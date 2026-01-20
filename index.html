@@ -12,6 +12,7 @@
         .active-press:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0px #333; }
         * { -webkit-touch-callout: none; -webkit-user-select: none; }
         .category-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #333; margin-right: 6px; }
+        .checked-item { text-decoration: line-through; opacity: 0.5; }
     </style>
 </head>
 <body class="p-4 pb-32">
@@ -20,7 +21,7 @@
         <div class="col-span-2 bg-[#98A393] p-6 rounded-2xl hard-shadow text-white relative active-press">
             <div class="text-xs font-bold opacity-90 mb-1 tracking-widest">UPCOMING TRIP</div>
             <div class="text-3xl font-black mb-1">曼谷 BANGKOK</div>
-            <div class="text-sm font-bold opacity-90">2026.01.20 - 01.26</div>
+            <div class="text-sm font-bold opacity-90 text-yellow-200">2026.01.20 - 01.26</div>
             <div class="absolute -right-2 -bottom-2 text-7xl opacity-30">✈️</div>
         </div>
 
@@ -28,35 +29,42 @@
             <span class="text-5xl mb-3">💴</span>
             <span class="text-lg font-black tracking-tighter">記帳本</span>
         </div>
-        <div class="bg-[#c9c5c2] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press">
+        <div id="btn-gift" class="bg-[#c9c5c2] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
             <span class="text-5xl mb-3">🎁</span>
             <span class="text-lg font-black tracking-tighter">伴手禮</span>
         </div>
-        <div class="bg-[#e5e1d8] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press">
+        <div id="btn-pack" class="bg-[#e5e1d8] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
             <span class="text-5xl mb-3">🎒</span>
             <span class="text-lg font-black tracking-tighter">行李清單</span>
         </div>
-        <div id="btn-add" class="bg-[#f1efe9] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
-            <span class="text-5xl mb-3">📍</span>
-            <span class="text-lg font-black tracking-tighter">新增行程</span>
+        <div id="btn-plan" class="bg-[#f1efe9] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
+            <span class="text-5xl mb-3">🗓️</span>
+            <span class="text-lg font-black tracking-tighter">查看行程</span>
         </div>
     </div>
 
-    <div class="mt-8 p-6 bg-white rounded-2xl hard-shadow">
-        <h3 class="font-black text-xl mb-2 text-[#333]">💰 泰國花費統計</h3>
-        <div id="total-amount" class="text-4xl font-black text-[#A68A7E] mb-1">台幣 $0</div>
-        <div class="text-[10px] font-bold text-gray-400 mb-4">💡 長按項目可刪除紀錄</div>
+    <div id="display-section" class="mt-8 space-y-6">
         
-        <div class="border-t-4 border-black pt-4">
-            <div id="expense-list" class="space-y-3 font-bold">
+        <div class="p-6 bg-white rounded-2xl hard-shadow">
+            <div class="flex justify-between items-center mb-4">
+                <h3 id="list-title" class="font-black text-xl text-[#333]">💰 花費統計</h3>
+                <button id="main-add-btn" class="bg-black text-white text-xs px-3 py-1 rounded-full font-bold">+ 新增</button>
+            </div>
+            
+            <div id="total-area" class="mb-4">
+                <div id="total-amount" class="text-4xl font-black text-[#A68A7E]">台幣 $0</div>
+            </div>
+
+            <div id="main-list" class="space-y-3 font-bold">
                 <div class="text-gray-400 italic text-center">載入中...</div>
             </div>
+            <div class="text-[10px] font-bold text-gray-400 mt-4">💡 提示：長按項目可刪除紀錄</div>
         </div>
     </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, query, orderBy, limit, onSnapshot, serverTimestamp, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+        import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, deleteDoc, updateDoc, doc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyD4AWcw5vICugtgdqbu1eYGOfPml45ejYo",
@@ -71,76 +79,105 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // 分類顏色設定
-        const catMap = {
-            "食": { color: "#FFD700", label: "🍔 食" },
-            "衣": { color: "#FFB6C1", label: "👕 衣" },
-            "住": { color: "#87CEFA", label: "🏨 住" },
-            "行": { color: "#90EE90", label: "🚕 行" },
-            "樂": { color: "#DDA0DD", label: "🎉 樂" }
+        let currentMode = "expenses"; // 預設模式
+
+        // 通用長按刪除函數
+        window.bindLongPress = (id, collectionName, displayName) => {
+            const el = document.getElementById(`item-${id}`);
+            let timer;
+            el.ontouchstart = () => {
+                timer = setTimeout(async () => {
+                    if (confirm(`確定刪除「${displayName}」嗎？`)) {
+                        await deleteDoc(doc(db, collectionName, id));
+                    }
+                }, 600);
+            };
+            el.ontouchend = () => clearTimeout(timer);
         };
 
-        // 1. 記帳功能 (含分類選擇)
-        document.getElementById('btn-expense').onclick = async () => {
-            const cat = prompt("請輸入分類 (食/衣/住/行/樂):", "食");
-            if (!catMap[cat]) return alert("請輸入正確的分類名稱喔！");
+        // 重新讀取清單的函數
+        const refreshDisplay = () => {
+            const listTitle = document.getElementById('list-title');
+            const totalArea = document.getElementById('total-area');
             
-            const thbAmount = prompt(`[${cat}] 請輸入泰銖金額 (THB):`);
-            if (thbAmount && !isNaN(thbAmount)) {
-                const note = prompt("備註內容 (例如：泰式奶茶):");
-                const twdAmount = Math.round(thbAmount * 0.92);
-                try {
-                    await addDoc(collection(db, "expenses"), {
-                        category: cat,
-                        item: note || "泰國消費",
-                        thb: Number(thbAmount),
-                        twd: twdAmount,
-                        time: serverTimestamp()
-                    });
-                } catch (e) { alert("同步失敗！"); }
+            // 根據模式切換 UI
+            if (currentMode === "expenses") {
+                listTitle.innerText = "💰 花費統計";
+                totalArea.style.display = "block";
+            } else if (currentMode === "gifts") {
+                listTitle.innerText = "🎁 伴手禮清單";
+                totalArea.style.display = "none";
+            } else if (currentMode === "packing") {
+                listTitle.innerText = "🎒 行李清單";
+                totalArea.style.display = "none";
+            } else {
+                listTitle.innerText = "🗓️ 旅遊行程";
+                totalArea.style.display = "none";
+            }
+
+            // 即時監聽資料庫
+            const q = query(collection(db, currentMode), orderBy("time", currentMode === "plans" ? "asc" : "desc"));
+            onSnapshot(q, (snap) => {
+                let html = "";
+                let total = 0;
+                
+                snap.forEach(d => {
+                    const data = d.data();
+                    if (currentMode === "expenses") {
+                        total += data.twd;
+                        const catColor = { "食": "#FFD700", "衣": "#FFB6C1", "住": "#87CEFA", "行": "#90EE90", "樂": "#DDA0DD" }[data.category] || "#EEE";
+                        html += `<div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg border-2 border-black" id="item-${d.id}">
+                                    <div><span class="category-tag" style="background-color:${catColor}">${data.category}</span>${data.item}</div>
+                                    <span>$${data.twd}</span>
+                                 </div>`;
+                    } else if (currentMode === "plans") {
+                        html += `<div class="bg-gray-50 p-3 rounded-lg border-2 border-black" id="item-${d.id}">
+                                    <div class="text-xs text-[#98A393] mb-1">Step</div>
+                                    <div class="text-sm font-black">${data.title}</div>
+                                 </div>`;
+                    } else {
+                        html += `<div class="flex items-center bg-gray-50 p-3 rounded-lg border-2 border-black" id="item-${d.id}" onclick="window.toggleTask('${d.id}', ${data.done})">
+                                    <div class="w-5 h-5 border-2 border-black mr-3 flex items-center justify-center bg-white">${data.done ? "✓" : ""}</div>
+                                    <span class="${data.done ? 'checked-item' : ''}">${data.name}</span>
+                                 </div>`;
+                    }
+                });
+
+                document.getElementById('main-list').innerHTML = html || `<div class="text-gray-300 italic text-center">目前沒有資料</div>`;
+                document.getElementById('total-amount').innerText = `台幣 $${total}`;
+                
+                // 綁定長按刪除
+                snap.forEach(d => window.bindLongPress(d.id, currentMode, d.data().item || d.data().name || d.data().title));
+            });
+        };
+
+        // 切換按鈕事件
+        document.getElementById('btn-expense').onclick = () => { currentMode = "expenses"; refreshDisplay(); };
+        document.getElementById('btn-gift').onclick = () => { currentMode = "gifts"; refreshDisplay(); };
+        document.getElementById('btn-pack').onclick = () => { currentMode = "packing"; refreshDisplay(); };
+        document.getElementById('btn-plan').onclick = () => { currentMode = "plans"; refreshDisplay(); };
+
+        // 勾選功能
+        window.toggleTask = async (id, status) => { await updateDoc(doc(db, currentMode, id), { done: !status }); };
+
+        // 通用新增按鈕 (根據當前模式彈出不同視窗)
+        document.getElementById('main-add-btn').onclick = async () => {
+            if (currentMode === "expenses") {
+                const cat = prompt("分類 (食/衣/住/行/樂):", "食");
+                const thb = prompt("泰銖金額:");
+                const item = prompt("備註:");
+                if (cat && thb) await addDoc(collection(db, "expenses"), { category: cat, item: item || "消費", thb: Number(thb), twd: Math.round(thb * 0.92), time: serverTimestamp() });
+            } else if (currentMode === "plans") {
+                const title = prompt("新增行程內容 (例如：10:00 恰圖恰市集):");
+                if (title) await addDoc(collection(db, "plans"), { title, time: serverTimestamp() });
+            } else {
+                const name = prompt("新增項目名稱:");
+                if (name) await addDoc(collection(db, currentMode), { name, done: false, time: serverTimestamp() });
             }
         };
 
-        // 2. 顯示與長按刪除
-        const expenseQ = query(collection(db, "expenses"), orderBy("time", "desc"), limit(30));
-        onSnapshot(expenseQ, (snapshot) => {
-            let total = 0;
-            const listContainer = document.getElementById('expense-list');
-            listContainer.innerHTML = "";
-
-            snapshot.forEach((snapshotDoc) => {
-                const data = snapshotDoc.data();
-                total += data.twd || 0;
-                const catInfo = catMap[data.category] || { color: "#EEE", label: "❔ 他" };
-                
-                const itemDiv = document.createElement('div');
-                itemDiv.className = "flex justify-between items-center bg-gray-50 p-2 rounded-lg border-2 border-black active:bg-gray-200 transition-colors";
-                itemDiv.innerHTML = `
-                    <div class="flex items-center">
-                        <span class="category-tag" style="background-color: ${catInfo.color}">${catInfo.label}</span>
-                        <span>${data.item}</span>
-                    </div>
-                    <span class="text-[#A68A7E]">฿${data.thb} → $${data.twd}</span>`;
-
-                let timer;
-                const startPress = () => {
-                    timer = setTimeout(async () => {
-                        if (confirm(`確定刪除「${data.item}」嗎？`)) {
-                            await deleteDoc(doc(db, "expenses", snapshotDoc.id));
-                        }
-                    }, 600);
-                };
-                itemDiv.addEventListener('touchstart', startPress);
-                itemDiv.addEventListener('touchend', () => clearTimeout(timer));
-                listContainer.appendChild(itemDiv);
-            });
-            document.getElementById('total-amount').innerText = `台幣 $${total}`;
-        });
-
-        document.getElementById('btn-add').onclick = async () => {
-            await addDoc(collection(db, "plans"), { title: "新景點測試", time: serverTimestamp() });
-            alert("✨ 行程已同步！");
-        };
+        // 初始化
+        refreshDisplay();
     </script>
 </body>
 </html>
