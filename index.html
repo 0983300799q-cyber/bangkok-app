@@ -12,7 +12,7 @@
         .active-press:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0px #333; }
         * { -webkit-touch-callout: none; -webkit-user-select: none; }
         .category-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #333; margin-right: 6px; }
-        .checked-item { text-decoration: line-through; opacity: 0.5; }
+        .day-header { background: #333; color: white; padding: 4px 12px; border-radius: 99px; font-size: 12px; display: inline-block; margin-bottom: 8px; }
     </style>
 </head>
 <body class="p-4 pb-32">
@@ -25,40 +25,39 @@
             <div class="absolute -right-2 -bottom-2 text-7xl opacity-30">✈️</div>
         </div>
 
-        <div id="btn-expense" class="bg-[#abacad] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
+        <div onclick="window.setMode('expenses')" class="bg-[#abacad] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
             <span class="text-5xl mb-3">💴</span>
             <span class="text-lg font-black tracking-tighter">記帳本</span>
         </div>
-        <div id="btn-gift" class="bg-[#c9c5c2] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
+        <div onclick="window.setMode('gifts')" class="bg-[#c9c5c2] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
             <span class="text-5xl mb-3">🎁</span>
             <span class="text-lg font-black tracking-tighter">伴手禮</span>
         </div>
-        <div id="btn-pack" class="bg-[#e5e1d8] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
+        <div onclick="window.setMode('packing')" class="bg-[#e5e1d8] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
             <span class="text-5xl mb-3">🎒</span>
             <span class="text-lg font-black tracking-tighter">行李清單</span>
         </div>
-        <div id="btn-plan" class="bg-[#f1efe9] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
+        <div onclick="window.setMode('plans')" class="bg-[#f1efe9] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
             <span class="text-5xl mb-3">🗓️</span>
             <span class="text-lg font-black tracking-tighter">查看行程</span>
         </div>
     </div>
 
-    <div id="display-section" class="mt-8 space-y-6">
-        
-        <div class="p-6 bg-white rounded-2xl hard-shadow">
+    <div class="mt-8">
+        <div class="p-6 bg-white rounded-2xl hard-shadow min-h-[400px]">
             <div class="flex justify-between items-center mb-4">
                 <h3 id="list-title" class="font-black text-xl text-[#333]">💰 花費統計</h3>
-                <button id="main-add-btn" class="bg-black text-white text-xs px-3 py-1 rounded-full font-bold">+ 新增</button>
+                <div class="space-x-2">
+                    <button id="import-btn" class="hidden bg-gray-200 text-xs px-3 py-1 rounded-full font-bold">批次匯入</button>
+                    <button id="add-btn" class="bg-black text-white text-xs px-3 py-1 rounded-full font-bold">+ 新增</button>
+                </div>
             </div>
             
-            <div id="total-area" class="mb-4">
-                <div id="total-amount" class="text-4xl font-black text-[#A68A7E]">台幣 $0</div>
-            </div>
+            <div id="total-area" class="mb-4 text-4xl font-black text-[#A68A7E]">台幣 $0</div>
 
-            <div id="main-list" class="space-y-3 font-bold">
+            <div id="main-list" class="space-y-4">
                 <div class="text-gray-400 italic text-center">載入中...</div>
             </div>
-            <div class="text-[10px] font-bold text-gray-400 mt-4">💡 提示：長按項目可刪除紀錄</div>
         </div>
     </div>
 
@@ -78,106 +77,101 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        let currentMode = "expenses";
+        let unsubscribe = null;
 
-        let currentMode = "expenses"; // 預設模式
-
-        // 通用長按刪除函數
-        window.bindLongPress = (id, collectionName, displayName) => {
-            const el = document.getElementById(`item-${id}`);
-            let timer;
-            el.ontouchstart = () => {
-                timer = setTimeout(async () => {
-                    if (confirm(`確定刪除「${displayName}」嗎？`)) {
-                        await deleteDoc(doc(db, collectionName, id));
-                    }
-                }, 600);
-            };
-            el.ontouchend = () => clearTimeout(timer);
+        window.setMode = (mode) => {
+            currentMode = mode;
+            document.getElementById('import-btn').classList.toggle('hidden', mode !== 'plans');
+            document.getElementById('total-area').classList.toggle('hidden', mode !== 'expenses');
+            const titles = { expenses: "💰 花費統計", gifts: "🎁 伴手禮清單", packing: "🎒 行李清單", plans: "🗓️ 旅遊行程" };
+            document.getElementById('list-title').innerText = titles[mode];
+            loadData();
         };
 
-        // 重新讀取清單的函數
-        const refreshDisplay = () => {
-            const listTitle = document.getElementById('list-title');
-            const totalArea = document.getElementById('total-area');
+        const loadData = () => {
+            if (unsubscribe) unsubscribe();
+            const q = query(collection(db, currentMode), orderBy(currentMode === 'plans' ? "date" : "time", "asc"));
             
-            // 根據模式切換 UI
-            if (currentMode === "expenses") {
-                listTitle.innerText = "💰 花費統計";
-                totalArea.style.display = "block";
-            } else if (currentMode === "gifts") {
-                listTitle.innerText = "🎁 伴手禮清單";
-                totalArea.style.display = "none";
-            } else if (currentMode === "packing") {
-                listTitle.innerText = "🎒 行李清單";
-                totalArea.style.display = "none";
-            } else {
-                listTitle.innerText = "🗓️ 旅遊行程";
-                totalArea.style.display = "none";
-            }
-
-            // 即時監聽資料庫
-            const q = query(collection(db, currentMode), orderBy("time", currentMode === "plans" ? "asc" : "desc"));
-            onSnapshot(q, (snap) => {
+            unsubscribe = onSnapshot(q, (snap) => {
                 let html = "";
                 let total = 0;
-                
+                let lastDate = "";
+
                 snap.forEach(d => {
                     const data = d.data();
-                    if (currentMode === "expenses") {
+                    if (currentMode === 'expenses') {
                         total += data.twd;
-                        const catColor = { "食": "#FFD700", "衣": "#FFB6C1", "住": "#87CEFA", "行": "#90EE90", "樂": "#DDA0DD" }[data.category] || "#EEE";
-                        html += `<div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg border-2 border-black" id="item-${d.id}">
-                                    <div><span class="category-tag" style="background-color:${catColor}">${data.category}</span>${data.item}</div>
-                                    <span>$${data.twd}</span>
-                                 </div>`;
-                    } else if (currentMode === "plans") {
-                        html += `<div class="bg-gray-50 p-3 rounded-lg border-2 border-black" id="item-${d.id}">
-                                    <div class="text-xs text-[#98A393] mb-1">Step</div>
-                                    <div class="text-sm font-black">${data.title}</div>
-                                 </div>`;
+                        html += `<div class="p-2 border-2 border-black rounded-lg bg-gray-50 flex justify-between items-center" id="${d.id}">
+                            <span>[${data.category}] ${data.item}</span><span>$${data.twd}</span></div>`;
+                    } else if (currentMode === 'plans') {
+                        if (data.date !== lastDate) {
+                            html += `<div class="day-header mt-4">${data.date}</div>`;
+                            lastDate = data.date;
+                        }
+                        html += `<div class="p-3 border-2 border-black rounded-lg bg-gray-50 mb-2" id="${d.id}">
+                            <div class="flex justify-between font-black"><span>${data.time_str} ${data.title}</span></div>
+                            <div class="text-xs text-gray-500 mt-1 bg-white p-1 rounded border border-dashed border-gray-300" onclick="window.editNote('${d.id}', '${data.note||""}')">
+                                📝 ${data.note || "點擊新增備註..."}
+                            </div>
+                        </div>`;
                     } else {
-                        html += `<div class="flex items-center bg-gray-50 p-3 rounded-lg border-2 border-black" id="item-${d.id}" onclick="window.toggleTask('${d.id}', ${data.done})">
-                                    <div class="w-5 h-5 border-2 border-black mr-3 flex items-center justify-center bg-white">${data.done ? "✓" : ""}</div>
-                                    <span class="${data.done ? 'checked-item' : ''}">${data.name}</span>
-                                 </div>`;
+                        html += `<div class="p-2 border-2 border-black rounded-lg bg-gray-50 flex items-center" onclick="window.toggleTask('${d.id}', ${data.done})">
+                            <div class="mr-2">${data.done ? "✅" : "⬜"}</div><span class="${data.done?'line-through opacity-50':''}">${data.name}</span></div>`;
                     }
                 });
 
-                document.getElementById('main-list').innerHTML = html || `<div class="text-gray-300 italic text-center">目前沒有資料</div>`;
+                document.getElementById('main-list').innerHTML = html || '<div class="text-center text-gray-400">尚無資料</div>';
                 document.getElementById('total-amount').innerText = `台幣 $${total}`;
                 
                 // 綁定長按刪除
-                snap.forEach(d => window.bindLongPress(d.id, currentMode, d.data().item || d.data().name || d.data().title));
+                snap.forEach(d => {
+                    const el = document.getElementById(d.id);
+                    let timer;
+                    el.ontouchstart = () => timer = setTimeout(() => confirm("確定刪除？") && deleteDoc(doc(db, currentMode, d.id)), 800);
+                    el.ontouchend = () => clearTimeout(timer);
+                });
             });
         };
 
-        // 切換按鈕事件
-        document.getElementById('btn-expense').onclick = () => { currentMode = "expenses"; refreshDisplay(); };
-        document.getElementById('btn-gift').onclick = () => { currentMode = "gifts"; refreshDisplay(); };
-        document.getElementById('btn-pack').onclick = () => { currentMode = "packing"; refreshDisplay(); };
-        document.getElementById('btn-plan').onclick = () => { currentMode = "plans"; refreshDisplay(); };
+        // 批次匯入功能
+        document.getElementById('import-btn').onclick = async () => {
+            const raw = prompt("請貼上行程文字 (格式: 日期 時間 內容，用斜線隔開)\n例如: 1/20 09:00 恰圖恰 / 1/20 12:00 午餐");
+            if (raw) {
+                const items = raw.split('/');
+                for (let item of items) {
+                    const parts = item.trim().split(' ');
+                    if (parts.length >= 3) {
+                        await addDoc(collection(db, "plans"), { date: parts[0], time_str: parts[1], title: parts[2], note: "", time: serverTimestamp() });
+                    }
+                }
+            }
+        };
 
-        // 勾選功能
-        window.toggleTask = async (id, status) => { await updateDoc(doc(db, currentMode, id), { done: !status }); };
-
-        // 通用新增按鈕 (根據當前模式彈出不同視窗)
-        document.getElementById('main-add-btn').onclick = async () => {
-            if (currentMode === "expenses") {
-                const cat = prompt("分類 (食/衣/住/行/樂):", "食");
-                const thb = prompt("泰銖金額:");
+        document.getElementById('add-btn').onclick = async () => {
+            if (currentMode === 'plans') {
+                const date = prompt("日期 (例如 1/20):", "1/20");
+                const time = prompt("時間 (例如 09:00):", "09:00");
+                const title = prompt("行程內容:");
+                if (date && title) await addDoc(collection(db, "plans"), { date, time_str: time, title, note: "", time: serverTimestamp() });
+            } else if (currentMode === 'expenses') {
+                const cat = prompt("食/衣/住/行/樂:");
+                const thb = prompt("泰銖:");
                 const item = prompt("備註:");
-                if (cat && thb) await addDoc(collection(db, "expenses"), { category: cat, item: item || "消費", thb: Number(thb), twd: Math.round(thb * 0.92), time: serverTimestamp() });
-            } else if (currentMode === "plans") {
-                const title = prompt("新增行程內容 (例如：10:00 恰圖恰市集):");
-                if (title) await addDoc(collection(db, "plans"), { title, time: serverTimestamp() });
+                await addDoc(collection(db, "expenses"), { category: cat, item, thb: Number(thb), twd: Math.round(thb*0.92), time: serverTimestamp() });
             } else {
-                const name = prompt("新增項目名稱:");
+                const name = prompt("項目名稱:");
                 if (name) await addDoc(collection(db, currentMode), { name, done: false, time: serverTimestamp() });
             }
         };
 
-        // 初始化
-        refreshDisplay();
+        window.toggleTask = async (id, status) => { await updateDoc(doc(db, currentMode, id), { done: !status }); };
+        window.editNote = async (id, oldNote) => {
+            const newNote = prompt("編輯備註內容:", oldNote);
+            if (newNote !== null) await updateDoc(doc(db, "plans", id), { note: newNote });
+        };
+
+        window.setMode('expenses');
     </script>
 </body>
 </html>
