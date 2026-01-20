@@ -12,7 +12,9 @@
         .active-press:active { transform: translate(3px, 3px); box-shadow: 2px 2px 0px #333; }
         * { -webkit-touch-callout: none; -webkit-user-select: none; }
         .category-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; border: 1px solid #333; margin-right: 6px; }
-        .day-header { background: #333; color: white; padding: 4px 12px; border-radius: 99px; font-size: 12px; display: inline-block; margin-bottom: 8px; }
+        .day-header { background: #333; color: white; padding: 8px 16px; border-radius: 12px; font-size: 14px; font-weight: 900; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+        .checked-item { text-decoration: line-through; opacity: 0.5; }
+        .collapsed { display: none; }
     </style>
 </head>
 <body class="p-4 pb-32">
@@ -26,20 +28,16 @@
         </div>
 
         <div onclick="window.setMode('expenses')" class="bg-[#abacad] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
-            <span class="text-5xl mb-3">💴</span>
-            <span class="text-lg font-black tracking-tighter">記帳本</span>
+            <span class="text-5xl mb-3">💴</span><span class="text-lg font-black tracking-tighter">記帳本</span>
         </div>
         <div onclick="window.setMode('gifts')" class="bg-[#c9c5c2] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
-            <span class="text-5xl mb-3">🎁</span>
-            <span class="text-lg font-black tracking-tighter">伴手禮</span>
+            <span class="text-5xl mb-3">🎁</span><span class="text-lg font-black tracking-tighter">伴手禮</span>
         </div>
         <div onclick="window.setMode('packing')" class="bg-[#e5e1d8] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
-            <span class="text-5xl mb-3">🎒</span>
-            <span class="text-lg font-black tracking-tighter">行李清單</span>
+            <span class="text-5xl mb-3">🎒</span><span class="text-lg font-black tracking-tighter">行李清單</span>
         </div>
         <div onclick="window.setMode('plans')" class="bg-[#f1efe9] p-5 rounded-2xl hard-shadow flex flex-col items-center justify-center aspect-square active-press cursor-pointer">
-            <span class="text-5xl mb-3">🗓️</span>
-            <span class="text-lg font-black tracking-tighter">查看行程</span>
+            <span class="text-5xl mb-3">🗓️</span><span class="text-lg font-black tracking-tighter">查看行程</span>
         </div>
     </div>
 
@@ -48,16 +46,13 @@
             <div class="flex justify-between items-center mb-4">
                 <h3 id="list-title" class="font-black text-xl text-[#333]">💰 花費統計</h3>
                 <div class="space-x-2">
-                    <button id="import-btn" class="hidden bg-gray-200 text-xs px-3 py-1 rounded-full font-bold">批次匯入</button>
-                    <button id="add-btn" class="bg-black text-white text-xs px-3 py-1 rounded-full font-bold">+ 新增</button>
+                    <button id="import-btn" class="hidden bg-gray-200 text-[10px] px-2 py-1 rounded-full font-bold">批次匯入</button>
+                    <button id="add-btn" class="bg-black text-white text-[10px] px-2 py-1 rounded-full font-bold">+ 新增</button>
                 </div>
             </div>
-            
             <div id="total-area" class="mb-4 text-4xl font-black text-[#A68A7E]">台幣 $0</div>
-
-            <div id="main-list" class="space-y-4">
-                <div class="text-gray-400 italic text-center">載入中...</div>
-            </div>
+            <div id="main-list" class="space-y-4"></div>
+            <div class="text-[10px] font-bold text-gray-400 mt-10 pt-4 border-t border-dashed">💡 提示：長按項目「空白處」可刪除紀錄</div>
         </div>
     </div>
 
@@ -79,6 +74,7 @@
         const db = getFirestore(app);
         let currentMode = "expenses";
         let unsubscribe = null;
+        let collapsedDays = {};
 
         window.setMode = (mode) => {
             currentMode = mode;
@@ -96,79 +92,103 @@
             unsubscribe = onSnapshot(q, (snap) => {
                 let html = "";
                 let total = 0;
-                let lastDate = "";
+                let dayData = {};
 
                 snap.forEach(d => {
                     const data = d.data();
-                    if (currentMode === 'expenses') {
+                    if (currentMode === 'plans') {
+                        if (!dayData[data.date]) dayData[data.date] = [];
+                        dayData[data.date].push({ id: d.id, ...data });
+                    } else if (currentMode === 'expenses') {
                         total += data.twd;
-                        html += `<div class="p-2 border-2 border-black rounded-lg bg-gray-50 flex justify-between items-center" id="${d.id}">
-                            <span>[${data.category}] ${data.item}</span><span>$${data.twd}</span></div>`;
-                    } else if (currentMode === 'plans') {
-                        if (data.date !== lastDate) {
-                            html += `<div class="day-header mt-4">${data.date}</div>`;
-                            lastDate = data.date;
-                        }
-                        html += `<div class="p-3 border-2 border-black rounded-lg bg-gray-50 mb-2" id="${d.id}">
-                            <div class="flex justify-between font-black"><span>${data.time_str} ${data.title}</span></div>
-                            <div class="text-xs text-gray-500 mt-1 bg-white p-1 rounded border border-dashed border-gray-300" onclick="window.editNote('${d.id}', '${data.note||""}')">
-                                📝 ${data.note || "點擊新增備註..."}
-                            </div>
-                        </div>`;
-                    } else {
-                        html += `<div class="p-2 border-2 border-black rounded-lg bg-gray-50 flex items-center" onclick="window.toggleTask('${d.id}', ${data.done})">
-                            <div class="mr-2">${data.done ? "✅" : "⬜"}</div><span class="${data.done?'line-through opacity-50':''}">${data.name}</span></div>`;
                     }
                 });
+
+                if (currentMode === 'plans') {
+                    Object.keys(dayData).sort().forEach(date => {
+                        const isCollapsed = collapsedDays[date];
+                        html += `<div class="day-group">
+                            <div class="day-header" onclick="window.toggleDay('${date}')"><span>📅 ${date}</span><span>${isCollapsed ? '➕' : '➖'}</span></div>
+                            <div id="day-content-${date}" class="${isCollapsed ? 'collapsed' : ''} pt-3 space-y-3">`;
+                        dayData[date].forEach(item => {
+                            html += `<div class="p-3 border-2 border-black rounded-xl bg-gray-50 active-press" id="item-${item.id}">
+                                <div class="font-black">${item.time_str} ${item.title}</div>
+                                <div class="text-[11px] text-gray-500 mt-1 bg-white p-2 rounded-lg border border-gray-200" onclick="window.editNote('${item.id}', '${item.note||""}')">📝 ${item.note || "點擊新增備註..."}</div>
+                            </div>`;
+                        });
+                        html += `</div></div>`;
+                    });
+                } else {
+                    snap.forEach(d => {
+                        const data = d.data();
+                        if (currentMode === 'expenses') {
+                            const catColor = { "食": "#FFD700", "衣": "#FFB6C1", "住": "#87CEFA", "行": "#90EE90", "樂": "#DDA0DD" }[data.category] || "#EEE";
+                            html += `<div class="p-3 border-2 border-black rounded-xl bg-gray-50 flex justify-between items-center" id="item-${d.id}">
+                                <div><span class="category-tag" style="background-color:${catColor}">${data.category}</span>${data.item}</div><span class="font-black">$${data.twd}</span></div>`;
+                        } else {
+                            html += `<div class="p-3 border-2 border-black rounded-xl bg-gray-50 flex items-center" id="item-${d.id}">
+                                <div class="mr-3 text-xl" onclick="window.toggleTask('${d.id}', ${data.done})">${data.done ? "✅" : "⬜"}</div>
+                                <span class="font-bold ${data.done?'line-through opacity-50':''}" onclick="window.toggleTask('${d.id}', ${data.done})">${data.name}</span></div>`;
+                        }
+                    });
+                }
 
                 document.getElementById('main-list').innerHTML = html || '<div class="text-center text-gray-400">尚無資料</div>';
                 document.getElementById('total-amount').innerText = `台幣 $${total}`;
                 
                 // 綁定長按刪除
                 snap.forEach(d => {
-                    const el = document.getElementById(d.id);
+                    const el = document.getElementById(`item-${d.id}`);
+                    if (!el) return;
                     let timer;
-                    el.ontouchstart = () => timer = setTimeout(() => confirm("確定刪除？") && deleteDoc(doc(db, currentMode, d.id)), 800);
+                    el.ontouchstart = (e) => {
+                        timer = setTimeout(() => {
+                            if(confirm("確定要刪除這項紀錄嗎？")) deleteDoc(doc(db, currentMode, d.id));
+                        }, 800);
+                    };
                     el.ontouchend = () => clearTimeout(timer);
+                    el.ontouchmove = () => clearTimeout(timer);
                 });
             });
         };
 
-        // 批次匯入功能
+        window.toggleDay = (date) => { collapsedDays[date] = !collapsedDays[date]; loadData(); };
+        window.toggleTask = async (id, status) => { await updateDoc(doc(db, currentMode, id), { done: !status }); };
+        window.editNote = async (id, oldNote) => {
+            const newNote = prompt("編輯行程備註:", oldNote);
+            if (newNote !== null) await updateDoc(doc(db, "plans", id), { note: newNote });
+        };
+
         document.getElementById('import-btn').onclick = async () => {
-            const raw = prompt("請貼上行程文字 (格式: 日期 時間 內容，用斜線隔開)\n例如: 1/20 09:00 恰圖恰 / 1/20 12:00 午餐");
-            if (raw) {
-                const items = raw.split('/');
-                for (let item of items) {
-                    const parts = item.trim().split(' ');
-                    if (parts.length >= 3) {
-                        await addDoc(collection(db, "plans"), { date: parts[0], time_str: parts[1], title: parts[2], note: "", time: serverTimestamp() });
-                    }
+            const raw = prompt("格式: 1/20 09:00 內容 / 1/20 12:00 內容");
+            if (!raw) return;
+            const items = raw.split('/');
+            let count = 0;
+            for (let item of items) {
+                const parts = item.trim().split(/\s+/);
+                if (parts.length >= 3) {
+                    await addDoc(collection(db, "plans"), { date: parts[0], time_str: parts[1], title: parts.slice(2).join(' '), note: "", time: serverTimestamp() });
+                    count++;
                 }
             }
+            alert(`成功匯入 ${count} 筆行程！`);
         };
 
         document.getElementById('add-btn').onclick = async () => {
             if (currentMode === 'plans') {
-                const date = prompt("日期 (例如 1/20):", "1/20");
-                const time = prompt("時間 (例如 09:00):", "09:00");
+                const date = prompt("日期 (1/20):", "1/20");
+                const time = prompt("時間 (09:00):", "09:00");
                 const title = prompt("行程內容:");
                 if (date && title) await addDoc(collection(db, "plans"), { date, time_str: time, title, note: "", time: serverTimestamp() });
             } else if (currentMode === 'expenses') {
                 const cat = prompt("食/衣/住/行/樂:");
                 const thb = prompt("泰銖:");
                 const item = prompt("備註:");
-                await addDoc(collection(db, "expenses"), { category: cat, item, thb: Number(thb), twd: Math.round(thb*0.92), time: serverTimestamp() });
+                if(cat && thb) await addDoc(collection(db, "expenses"), { category: cat, item, thb: Number(thb), twd: Math.round(thb*0.92), time: serverTimestamp() });
             } else {
                 const name = prompt("項目名稱:");
                 if (name) await addDoc(collection(db, currentMode), { name, done: false, time: serverTimestamp() });
             }
-        };
-
-        window.toggleTask = async (id, status) => { await updateDoc(doc(db, currentMode, id), { done: !status }); };
-        window.editNote = async (id, oldNote) => {
-            const newNote = prompt("編輯備註內容:", oldNote);
-            if (newNote !== null) await updateDoc(doc(db, "plans", id), { note: newNote });
         };
 
         window.setMode('expenses');
